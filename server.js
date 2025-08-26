@@ -1,28 +1,22 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const con = require("./db/db"); // your db.js connection
 const cors = require("cors");
+const con = require("./db/db"); // MySQL connection
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Test database connection
-console.log("Testing database connection...");
+// ✅ Test DB connection
 con.connect((err) => {
   if (err) {
     console.error("❌ Database connection failed:", err.message);
-    console.log("Please check:");
-    console.log("1. MySQL server is running");
-    console.log('2. Database "expenses" exists');
-    console.log("3. MySQL credentials in db.js are correct");
     process.exit(1);
-  } else {
-    console.log("✅ Connected to MySQL database successfully");
   }
+  console.log("✅ Connected to MySQL database successfully");
 });
 
-// Helper function: promisify queries
+// Helper: promisify query
 const query = (sql, params) => {
   return new Promise((resolve, reject) => {
     con.query(sql, params, (err, results) => {
@@ -32,58 +26,9 @@ const query = (sql, params) => {
   });
 };
 
-// ---------------- INIT ----------------
-app.get("/init", async (req, res) => {
-  try {
-    await query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL
-      )
-    `);
-
-    await query(`
-      CREATE TABLE IF NOT EXISTS expenses (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        item VARCHAR(100) NOT NULL,
-        amount DECIMAL(10, 2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Insert default users if not exist
-    const users = await query("SELECT * FROM users WHERE name IN ('Lisa', 'Tom')");
-    if (users.length === 0) {
-      const saltRounds = 10;
-      const lisaHash = await bcrypt.hash("1111", saltRounds);
-      const tomHash = await bcrypt.hash("2222", saltRounds);
-
-      await query(
-        "INSERT INTO users (name, password_hash) VALUES (?, ?), (?, ?)",
-        ["Lisa", lisaHash, "Tom", tomHash]
-      );
-
-      const userRows = await query("SELECT id, name FROM users WHERE name IN ('Lisa','Tom')");
-      const lisaId = userRows.find((u) => u.name === "Lisa").id;
-      const tomId = userRows.find((u) => u.name === "Tom").id;
-
-      await query(
-        "INSERT INTO expenses (user_id, item, amount, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
-        [lisaId, "Coffee", 3.5, "2025-08-25 09:30:00", tomId, "Snacks", 5.0, "2025-08-25 14:00:00"]
-      );
-    }
-
-    res.json({ message: "Database initialized successfully" });
-  } catch (error) {
-    console.error("Init error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ---------------- AUTH ----------------
+
+// Login
 app.post("/auth/login", async (req, res) => {
   const { name, password } = req.body;
   try {
@@ -102,18 +47,21 @@ app.post("/auth/login", async (req, res) => {
 
 // ---------------- EXPENSES ----------------
 
-// GET all expenses for a user
+// Get all expenses
 app.get("/expenses", async (req, res) => {
   const user_id = req.query.user_id;
   try {
-    const rows = await query("SELECT * FROM expenses WHERE user_id = ? ORDER BY created_at DESC", [user_id]);
+    const rows = await query(
+      "SELECT * FROM expenses WHERE user_id = ? ORDER BY created_at DESC",
+      [user_id]
+    );
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET today’s expenses
+// Get today's expenses
 app.get("/expenses/today", async (req, res) => {
   const user_id = req.query.user_id;
   try {
@@ -127,7 +75,7 @@ app.get("/expenses/today", async (req, res) => {
   }
 });
 
-// SEARCH by keyword
+// Search expenses
 app.get("/expenses/search", async (req, res) => {
   const user_id = req.query.user_id;
   const q = `%${(req.query.q || "").toLowerCase()}%`;
@@ -142,15 +90,14 @@ app.get("/expenses/search", async (req, res) => {
   }
 });
 
-// POST add new expense
+// Add new expense
 app.post("/expenses", async (req, res) => {
   const { user_id, item, amount } = req.body;
   try {
-    const result = await query("INSERT INTO expenses (user_id, item, amount) VALUES (?, ?, ?)", [
-      user_id,
-      item,
-      amount,
-    ]);
+    const result = await query(
+      "INSERT INTO expenses (user_id, item, amount) VALUES (?, ?, ?)",
+      [user_id, item, amount]
+    );
     const inserted = await query("SELECT * FROM expenses WHERE id = ?", [result.insertId]);
     res.status(201).json(inserted[0]);
   } catch (err) {
@@ -158,7 +105,7 @@ app.post("/expenses", async (req, res) => {
   }
 });
 
-// PUT update expense
+// Update expense
 app.put("/expenses/:id", async (req, res) => {
   const id = req.params.id;
   const { item, amount } = req.body;
@@ -171,7 +118,7 @@ app.put("/expenses/:id", async (req, res) => {
   }
 });
 
-// DELETE expense
+// Delete expense
 app.delete("/expenses/:id", async (req, res) => {
   const id = req.params.id;
   try {
@@ -182,19 +129,21 @@ app.delete("/expenses/:id", async (req, res) => {
   }
 });
 
-// ---------------- MIDDLEWARES ----------------
-app.use((error, req, res, next) => {
-  console.error("Unhandled error:", error);
-  res.status(500).json({ error: "Internal server error" });
-});
+// ---------------- HELPER ROUTES ----------------
 
-app.use((req, res) => {
-  res.status(404).json({ error: "Endpoint not found" });
+// Hash generator (for testing)
+app.get("/password/:raw", async (req, res) => {
+  const raw = req.params.raw;
+  try {
+    const hash = await bcrypt.hash(raw, 10);
+    res.json({ raw, hash });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`👉 Visit http://localhost:${PORT}/init to initialize the database`);
 });
