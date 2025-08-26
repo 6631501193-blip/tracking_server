@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Aug 26, 2025 at 11:09 AM
+-- Generation Time: Aug 26, 2025 at 02:04 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -30,20 +30,20 @@ SET time_zone = "+00:00";
 CREATE TABLE `expenses` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
-  `title` varchar(100) NOT NULL,
+  `item` varchar(100) NOT NULL,
   `amount` decimal(10,2) NOT NULL,
-  `date` date NOT NULL
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `expenses`
 --
 
-INSERT INTO `expenses` (`id`, `user_id`, `title`, `amount`, `date`) VALUES
-(1, 1, 'Coffee', 3.50, '2025-08-26'),
-(2, 1, 'Groceries', 22.10, '2025-08-25'),
-(3, 2, 'Bus Ticket', 1.20, '2025-08-26'),
-(4, 2, 'Snacks', 4.70, '2025-08-25');
+INSERT INTO `expenses` (`id`, `user_id`, `item`, `amount`, `created_at`) VALUES
+(1, 1, 'Coffee', 3.50, '2025-08-26 11:48:06'),
+(2, 1, 'Groceries', 22.10, '2025-08-25 11:48:06'),
+(3, 2, 'Bus Ticket', 1.20, '2025-08-26 11:48:06'),
+(4, 2, 'Snacks', 4.70, '2025-08-25 11:48:06');
 
 -- --------------------------------------------------------
 
@@ -62,8 +62,8 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `name`, `password_hash`) VALUES
-(1, 'Lisa', '$2y$10$N2lnc1cHwVEmnZkS1U3d..aAj0SmnVsyq2cHj0q7v2S7Yf0VdNejO'),
-(2, 'Tom', '$2y$10$ctDdUwrqFiq2UfrnflE7fOuf3WvZVgW7fE9d4uPAe8i9UO/xG6HPS');
+(1, 'Lisa', '$2b$10$9dLSE5uYFWC663ay4TYG5.JMfxSEHJ/fuPJEUu5dQ0qdcrxV4mm4e'),
+(2, 'Tom', '$2b$10$I82kOvsPgY.gMAak6avQEuXs84vHaS3zNtR33rTKRLmpnIhSixwte');
 
 --
 -- Indexes for dumped tables
@@ -74,7 +74,7 @@ INSERT INTO `users` (`id`, `name`, `password_hash`) VALUES
 --
 ALTER TABLE `expenses`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_user` (`user_id`);
+  ADD KEY `user_id` (`user_id`);
 
 --
 -- Indexes for table `users`
@@ -107,7 +107,7 @@ ALTER TABLE `users`
 -- Constraints for table `expenses`
 --
 ALTER TABLE `expenses`
-  ADD CONSTRAINT `fk_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+  ADD CONSTRAINT `expenses_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
