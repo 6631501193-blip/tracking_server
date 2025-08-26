@@ -1,7 +1,6 @@
-// server.js
 const express = require("express");
 const bcrypt = require("bcrypt");
-const con = require("./db/db"); // Your existing connection
+const con = require("./db/db"); // your db.js connection
 const cors = require("cors");
 
 const app = express();
@@ -12,37 +11,30 @@ app.use(express.json());
 console.log("Testing database connection...");
 con.connect((err) => {
   if (err) {
-    console.error('❌ Database connection failed:', err.message);
-    console.log('Please check:');
-    console.log('1. MySQL server is running');
+    console.error("❌ Database connection failed:", err.message);
+    console.log("Please check:");
+    console.log("1. MySQL server is running");
     console.log('2. Database "expenses" exists');
-    console.log('3. MySQL credentials in db.js are correct');
+    console.log("3. MySQL credentials in db.js are correct");
     process.exit(1);
   } else {
-    console.log('✅ Connected to MySQL database successfully');
+    console.log("✅ Connected to MySQL database successfully");
   }
 });
 
-// Helper function to convert callback to promise
+// Helper function: promisify queries
 const query = (sql, params) => {
   return new Promise((resolve, reject) => {
-    console.log('Executing query:', sql, params);
     con.query(sql, params, (err, results) => {
-      if (err) {
-        console.error('Query error:', err);
-        return reject(err);
-      }
+      if (err) return reject(err);
       resolve(results);
     });
   });
 };
 
-// --- Initialize Database ---
+// ---------------- INIT ----------------
 app.get("/init", async (req, res) => {
   try {
-    console.log("Initializing database...");
-    
-    // Create users table
     await query(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -51,77 +43,158 @@ app.get("/init", async (req, res) => {
       )
     `);
 
-    // Create expenses table
     await query(`
       CREATE TABLE IF NOT EXISTS expenses (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         item VARCHAR(100) NOT NULL,
         amount DECIMAL(10, 2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
 
-    // Insert default users if they don't exist
+    // Insert default users if not exist
     const users = await query("SELECT * FROM users WHERE name IN ('Lisa', 'Tom')");
-    console.log('Existing users:', users);
-    
     if (users.length === 0) {
-      console.log('Creating default users...');
       const saltRounds = 10;
       const lisaHash = await bcrypt.hash("1111", saltRounds);
       const tomHash = await bcrypt.hash("2222", saltRounds);
-      
+
       await query(
         "INSERT INTO users (name, password_hash) VALUES (?, ?), (?, ?)",
         ["Lisa", lisaHash, "Tom", tomHash]
       );
-      
-      // Add some sample expenses
-      const userRows = await query("SELECT id, name FROM users WHERE name IN ('Lisa', 'Tom')");
-      console.log('User rows:', userRows);
-      
-      const lisaId = userRows.find(u => u.name === 'Lisa').id;
-      const tomId = userRows.find(u => u.name === 'Tom').id;
-      
+
+      const userRows = await query("SELECT id, name FROM users WHERE name IN ('Lisa','Tom')");
+      const lisaId = userRows.find((u) => u.name === "Lisa").id;
+      const tomId = userRows.find((u) => u.name === "Tom").id;
+
       await query(
         "INSERT INTO expenses (user_id, item, amount, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
-        [tomId, "lunch", 50.00, "2025-08-20 13:27:39", tomId, "bun", 20.00, "2025-08-20 21:02:36"]
+        [lisaId, "Coffee", 3.5, "2025-08-25 09:30:00", tomId, "Snacks", 5.0, "2025-08-25 14:00:00"]
       );
-      
-      console.log('Sample expenses added');
     }
 
     res.json({ message: "Database initialized successfully" });
   } catch (error) {
-    console.error("Database initialization error:", error);
+    console.error("Init error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// --- All your other routes remain the same ---
-// (Login, expenses, today's expenses, search, add, delete)
+// ---------------- AUTH ----------------
+app.post("/auth/login", async (req, res) => {
+  const { name, password } = req.body;
+  try {
+    const rows = await query("SELECT * FROM users WHERE name = ?", [name]);
+    if (rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
 
-// Error handling middleware
+    const user = rows[0];
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+    res.json({ user_id: user.id, name: user.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------- EXPENSES ----------------
+
+// GET all expenses for a user
+app.get("/expenses", async (req, res) => {
+  const user_id = req.query.user_id;
+  try {
+    const rows = await query("SELECT * FROM expenses WHERE user_id = ? ORDER BY created_at DESC", [user_id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET today’s expenses
+app.get("/expenses/today", async (req, res) => {
+  const user_id = req.query.user_id;
+  try {
+    const rows = await query(
+      "SELECT * FROM expenses WHERE user_id = ? AND DATE(created_at) = CURDATE() ORDER BY created_at DESC",
+      [user_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SEARCH by keyword
+app.get("/expenses/search", async (req, res) => {
+  const user_id = req.query.user_id;
+  const q = `%${(req.query.q || "").toLowerCase()}%`;
+  try {
+    const rows = await query(
+      "SELECT * FROM expenses WHERE user_id = ? AND LOWER(item) LIKE ? ORDER BY created_at DESC",
+      [user_id, q]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST add new expense
+app.post("/expenses", async (req, res) => {
+  const { user_id, item, amount } = req.body;
+  try {
+    const result = await query("INSERT INTO expenses (user_id, item, amount) VALUES (?, ?, ?)", [
+      user_id,
+      item,
+      amount,
+    ]);
+    const inserted = await query("SELECT * FROM expenses WHERE id = ?", [result.insertId]);
+    res.status(201).json(inserted[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update expense
+app.put("/expenses/:id", async (req, res) => {
+  const id = req.params.id;
+  const { item, amount } = req.body;
+  try {
+    await query("UPDATE expenses SET item = ?, amount = ? WHERE id = ?", [item, amount, id]);
+    const updated = await query("SELECT * FROM expenses WHERE id = ?", [id]);
+    res.json(updated[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE expense
+app.delete("/expenses/:id", async (req, res) => {
+  const id = req.params.id;
+  try {
+    await query("DELETE FROM expenses WHERE id = ?", [id]);
+    res.json({ deleted: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------- MIDDLEWARES ----------------
 app.use((error, req, res, next) => {
   console.error("Unhandled error:", error);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Endpoint not found" });
 });
 
+// ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
-  console.log(`📊 Visit http://localhost:${PORT}/init to initialize the database`);
-}).on('error', (err) => {
-  console.error(' Server failed to start:', err.message);
-  if (err.code === 'EADDRINUSE') {
-    console.log('Port 3000 is already in use. Try using a different port.');
-  }
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`👉 Visit http://localhost:${PORT}/init to initialize the database`);
 });
-
-console.log("Server setup complete, starting...");
