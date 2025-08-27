@@ -10,10 +10,10 @@ app.use(express.json());
 // ✅ Test DB connection
 con.connect((err) => {
   if (err) {
-    console.error("❌ Database connection failed:", err.message);
+    console.error(" Database connection failed:", err.message);
     process.exit(1);
   }
-  console.log("✅ Connected to MySQL database successfully");
+  console.log("Connected to MySQL database successfully");
 });
 
 // Helper: promisify query
