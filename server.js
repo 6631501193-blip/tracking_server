@@ -123,11 +123,18 @@ app.delete("/expenses/:id", async (req, res) => {
   const id = req.params.id;
   try {
     await query("DELETE FROM expenses WHERE id = ?", [id]);
+
+    // Reset AUTO_INCREMENT to the max existing id + 1
+    await query("SET @num := 0");
+    await query("UPDATE expenses SET id = (@num := @num + 1) ORDER BY id");
+    await query("ALTER TABLE expenses AUTO_INCREMENT = 1");
+
     res.json({ deleted: id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ---------------- HELPER ROUTES ----------------
 
